@@ -347,17 +347,25 @@ public class ReferenceConfig<T> extends AbstractReferenceConfig {
         return new ConsumerModel(serviceKey, serviceInterface, ref, methods, attributes);
     }
 
+    /**
+     * 可以分为两大部分：创建 Invoker 和创建代理
+     */
     @SuppressWarnings({"unchecked", "rawtypes", "deprecation"})
     private T createProxy(Map<String, String> map) {
+        // 检查是否是同一个 JVM 内部引用
         if (shouldJvmRefer(map)) {
             URL url = new URL(LOCAL_PROTOCOL, LOCALHOST_VALUE, 0, interfaceClass.getName()).addParameters(map);
+            // 直接使用 injvm 协议从内存中获取实例
             invoker = REF_PROTOCOL.refer(interfaceClass, url);
             if (logger.isInfoEnabled()) {
                 logger.info("Using injvm service " + interfaceClass.getName());
             }
         } else {
-            urls.clear(); // reference retry init will add url to urls, lead to OOM
-            if (url != null && url.length() > 0) { // user specified URL, could be peer-to-peer address, or register center's address.
+            // reference retry init will add url to urls, lead to OOM
+            urls.clear();
+            // user specified URL, could be peer-to-peer address, or register center's address.
+            // url 不为空则代表是服务直连
+            if (url != null && url.length() > 0) {
                 String[] us = SEMICOLON_SPLIT_PATTERN.split(url);
                 if (us != null && us.length > 0) {
                     for (String u : us) {
@@ -376,6 +384,7 @@ public class ReferenceConfig<T> extends AbstractReferenceConfig {
                 // if protocols not injvm checkRegistry
                 if (!LOCAL_PROTOCOL.equalsIgnoreCase(getProtocol())){
                     checkRegistry();
+                    // 注册中心 URL 集合
                     List<URL> us = loadRegistries(false);
                     if (CollectionUtils.isNotEmpty(us)) {
                         for (URL u : us) {
@@ -392,8 +401,12 @@ public class ReferenceConfig<T> extends AbstractReferenceConfig {
                 }
             }
 
+            // 单注册中心消费
+            // urls.get(0) 获取到的是注册中心的地址。内容如下：
+            // registry://127.0.0.1:2181/com.alibaba.dubbo.registry.RegistryService?application=generic-consumer&dubbo=2.0.2&pid=86287&refer=application%3Dgeneric-consumer%26dubbo%3D2.0.2%26interface%3Dcom.alibaba.dubbo.examples.generic.api.IUserService%26methods%3Dget%26pid%3D86287%26register.ip%3D192.168.102.115%26side%3Dconsumer%26timestamp%3D1568169434041&registry=zookeeper&timestamp=1568169434101
             if (urls.size() == 1) {
                 invoker = REF_PROTOCOL.refer(interfaceClass, urls.get(0));
+            // 多个注册中心
             } else {
                 List<Invoker<?>> invokers = new ArrayList<Invoker<?>>();
                 URL registryURL = null;
@@ -430,6 +443,7 @@ public class ReferenceConfig<T> extends AbstractReferenceConfig {
             metadataReportService.publishConsumer(consumerURL);
         }
         // create service proxy
+        // 把 Invoke 转换成接口代理
         return (T) PROXY_FACTORY.getProxy(invoker);
     }
 
