@@ -38,6 +38,8 @@ import static org.apache.dubbo.rpc.cluster.Constants.DEFAULT_RETRIES;
 import static org.apache.dubbo.rpc.cluster.Constants.RETRIES_KEY;
 
 /**
+ * FailoverClusterInvoker 在调用失败时，会自动切换 Invoker 进行重试
+ * 当调用失败时，记录初始错误并重试其他调用者（重试 n 次，这意味着最多将调用 n 个不同的调用者）。注意，重试会导致延迟
  * When invoke fails, log the initial error and retry other invokers (retry n times, which means at most n different invokers will be invoked)
  * Note that retry causes latency.
  * <p>
@@ -52,12 +54,23 @@ public class FailoverClusterInvoker<T> extends AbstractClusterInvoker<T> {
         super(directory);
     }
 
+    /**
+     * 1. 检查invokers是否为空
+     * 2. 获取重试次数，默认为3
+     * 3. 进入循环
+     * 4. 如果是重试，再次获取服务提供者列表，并校验
+     * 5. 选取Invoker，并调用
+     * 6. 无异常，返回结果，循环结束
+     * 7. 捕获到异常，继续循环调用直至重试最大次数
+     */
     @Override
     @SuppressWarnings({"unchecked", "rawtypes"})
     public Result doInvoke(Invocation invocation, final List<Invoker<T>> invokers, LoadBalance loadbalance) throws RpcException {
         List<Invoker<T>> copyInvokers = invokers;
+        //检查 invokers 是否为空，空直接抛出异常
         checkInvokers(copyInvokers, invocation);
         String methodName = RpcUtils.getMethodName(invocation);
+        // 获取重试次数 默认 3 次
         int len = getUrl().getMethodParameter(methodName, RETRIES_KEY, DEFAULT_RETRIES) + 1;
         if (len <= 0) {
             len = 1;
@@ -70,15 +83,20 @@ public class FailoverClusterInvoker<T> extends AbstractClusterInvoker<T> {
             //Reselect before retry to avoid a change of candidate `invokers`.
             //NOTE: if `invokers` changed, then `invoked` also lose accuracy.
             if (i > 0) {
+                // 检查是否已经销毁
                 checkWhetherDestroyed();
+                // 重新获取服务提供者列表
                 copyInvokers = list(invocation);
+                // 再次检查 invokers 是否为空，空直接抛出异常
                 // check again
                 checkInvokers(copyInvokers, invocation);
             }
+            // 通过 loadbalance 选取一个Invoker
             Invoker<T> invoker = select(loadbalance, invocation, copyInvokers, invoked);
             invoked.add(invoker);
             RpcContext.getContext().setInvokers((List) invoked);
             try {
+                // 调用服务
                 Result result = invoker.invoke(invocation);
                 if (le != null && logger.isWarnEnabled()) {
                     logger.warn("Although retry the method " + methodName

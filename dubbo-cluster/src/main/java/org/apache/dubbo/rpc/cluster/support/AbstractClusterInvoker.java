@@ -232,6 +232,11 @@ public abstract class AbstractClusterInvoker<T> implements Invoker<T> {
         return null;
     }
 
+    /**
+     * 1. 调用服务目录，获取所有的服务提供者列表
+     * 2. 加载负载均衡组件
+     * 3. 调用子类实现，转发请求
+     */
     @Override
     public Result invoke(final Invocation invocation) throws RpcException {
         checkWhetherDestroyed();
@@ -242,9 +247,12 @@ public abstract class AbstractClusterInvoker<T> implements Invoker<T> {
             ((RpcInvocation) invocation).addAttachments(contextAttachments);
         }
 
+        // 调用服务目录的 list() 方法，获取所有的服务提供者 Invoker 对象
         List<Invoker<T>> invokers = list(invocation);
+        // 加载负载均衡组件
         LoadBalance loadbalance = initLoadBalance(invokers, invocation);
         RpcUtils.attachInvocationIdIfAsync(getUrl(), invocation);
+        // 调用子类实现，不同的集群容错机制
         return doInvoke(invocation, invokers, loadbalance);
     }
 
